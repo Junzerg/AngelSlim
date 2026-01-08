@@ -389,10 +389,10 @@ class BaseEagle3Drafter(nn.Module, ABC):
         retrieve_indices = self._generate_retrieve_indices(
             tree_position_ids, top_indices, parents_list
         )
-        
+
         # === VISUALIZATION LOG START ===
         print("\\n" + "=" * 20 + " Draft Tree Structure " + "=" * 20)
-        
+
         # Helper to decode token ID to text (if tokenizer is available)
         def decode_tok(tid):
             if hasattr(self, 'tokenizer') and self.tokenizer:
@@ -408,14 +408,14 @@ class BaseEagle3Drafter(nn.Module, ABC):
         # Get scores for the selected draft tokens (needed for vis)
         draft_scores = all_scores[top_indices]
         root_token_id = sample_token.item()
-        
+
         print(f"Root Token: {decode_tok(root_token_id)}")
-        
+
         print("Candidate Paths (Retrieve Indices):")
         # Filter out -1 padding and print paths with scores and decoded text
         for i, path in enumerate(retrieve_indices.tolist()):
             clean_path_indices = [idx for idx in path if idx != -1]
-            
+
             # Construct readable path string with probs and text
             path_str_parts = []
             for idx in clean_path_indices:
@@ -428,10 +428,10 @@ class BaseEagle3Drafter(nn.Module, ABC):
                     # so idx 0 is root. idx 1 is top_indices[0].
                     # draft_scores = all_scores[top_indices], so draft_scores[0] corresponds to idx 1.
                     # so draft_scores[idx-1] is correct.
-                    score = draft_scores[idx-1].item()
+                    score = draft_scores[idx - 1].item()
                     prob = math.exp(score)
                     path_str_parts.append(f"{decode_tok(token_id)}(p={prob:.4f})")
-            
+
             path_str = " -> ".join(path_str_parts)
             print(f"  Path {i}: {path_str}")
         print("=" * 62)

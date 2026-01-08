@@ -205,12 +205,74 @@ def evaluate_posterior(
             best_candidate = torch.tensor(0, dtype=torch.long, device=candidates.device)
         else:
             best_candidate = torch.argmax(candidates_accept_length).to(torch.long)
+
+        # === VISUALIZATION LOG START ===
+        print("\\n" + "=" * 80)
+        print(" DETAILED VERIFICATION LOG (Greedy)")
+        print("=" * 80)
+        
+        # We'll check the top draft path (0) and the eventually best accepted path (best_candidate)
+        paths_to_inspect = [0]
+        if best_candidate.item() != 0:
+            paths_to_inspect.append(best_candidate.item())
+        
+        for p_idx in paths_to_inspect:
+            role = "Top Draft Path" if p_idx == 0 else "Best Accepted Path"
+            print(f"Inspect Path {p_idx} ({role}):")
+            
+            curr_acc_len = candidates_accept_length[p_idx].item()
+            print(f"  Final Status: Accepted {curr_acc_len} tokens")
+            
+            # Loop through steps
+            # candidates has shape [batch, seq_len+1] (including root)
+            # logits has shape [batch, seq_len, vocab]
+            # Logits at index i predict candidates at index i+1
+            seq_len = candidates.shape[1] - 1 
+            
+            for step in range(seq_len):
+                # Draft token at this step (index step+1 in candidates)
+                d_tok = candidates[p_idx, step+1].item()
+                
+                # Target distribution at this step
+                step_logits = logits[p_idx, step]
+                probs = torch.softmax(step_logits, dim=-1)
+                
+                # Top 5 from Target
+                topk_probs, topk_ids = torch.topk(probs, 5)
+                
+                # Rank of draft token
+                d_prob = probs[d_tok].item()
+                
+                t_tok_top1 = topk_ids[0].item()
+                match = (d_tok == t_tok_top1)
+                
+                print(f"  [Step {step}] Draft Token: {d_tok}")
+                
+                # Create a string representation of Top-5
+                top5_str = ", ".join([f"{tid}({p:.4f})" for tid, p in zip(topk_ids.tolist(), topk_probs.tolist())])
+                print(f"    Target Top-5: {top5_str}")
+                print(f"    Draft Token Prob in Target: {d_prob:.6f}")
+                
+                if match:
+                    print(f"    Result: MATCH (Accepted)")
+                else:
+                    print(f"    Result: MISMATCH (Rejected). Target prefers {t_tok_top1}")
+                    if step >= curr_acc_len: # Stop detailed printing if we passed the acceptance point
+                         print(f"    -> Stop accepting this path.")
+                         break
+            print("-" * 40)
+        print("=" * 80 + "\\n")
+        # === VISUALIZATION LOG END ===
+
         sample_p = logits[best_candidate, accept_length]
         sample_token = torch.argmax(sample_p)
         sample_token = sample_token[None, None]
         return best_candidate, accept_length, sample_token
 
     else:
+        print("\\n" + "=" * 80)
+        print(" DETAILED VERIFICATION LOG (Sampling)")
+        print("=" * 80)
         accept_length = 1
         accept_cand = candidates[0][:1]
         best_candidate = 0
@@ -223,6 +285,13 @@ def evaluate_posterior(
             gt_logits = logits[fi, i - 1][None]
             gt_logits = logits_processor(None, gt_logits)[0]
             gtp = torch.softmax(gt_logits, dim=0)
+            
+            # --- Detail Log Start ---
+            topk_probs, topk_ids = torch.topk(gtp, 5)
+            top5_str = ", ".join([f"{tid}({p:.4f})" for tid, p in zip(topk_ids.tolist(), topk_probs.tolist())])
+            print(f"[Step {i-1}] Target Dist Top-5: {top5_str}")
+            # --- Detail Log End ---
+
             candidates_set = []
             for j in range(candidates.shape[0]):
                 if is_eq[j]:
@@ -236,11 +305,13 @@ def evaluate_posterior(
                     qx = 1.0
                     acp = px / qx
                     if r <= acp:
+                        print(f"  Candidate {j} Token {xi} ACCEPTED (p={px:.4f}, r={r:.4f} <= acp={acp:.4f})")
                         accept_cand = torch.cat((accept_cand, x[None]), dim=0)
                         accept_length += 1
                         best_candidate = j
                         break
                     else:
+                        print(f"  Candidate {j} Token {xi} REJECTED (p={px:.4f}, r={r:.4f} > acp={acp:.4f})")
                         gtp[xi] = 0
                         gtp = gtp / gtp.sum()
                         adjustflag = True
