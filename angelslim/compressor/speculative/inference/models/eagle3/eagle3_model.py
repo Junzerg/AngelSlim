@@ -288,6 +288,8 @@ class Eagle3Model(nn.Module):
 
         # Initialize EAGLE layer
         device = next(base_model.parameters()).device
+        
+        # [FIX] Ensure eagle_layer loads to correct device immediately or after creation
         eagle_state_dict = ModelLoader.load_eagle_state_dict(eagle_model_path, device)
 
         # TODO: Implement factory pattern for different drafter types
@@ -307,6 +309,7 @@ class Eagle3Model(nn.Module):
             del eagle_layer.d2t
             del eagle_layer.t2d
 
+        # [FIX] Load state dict, then move to device, then init_tree (which uses device)
         eagle_layer.load_state_dict(eagle_state_dict, strict=False)
         eagle_layer.to(device=device, dtype=base_model.dtype)
         eagle_layer.init_tree()
@@ -426,6 +429,37 @@ class Eagle3Model(nn.Module):
             best_candidate, accept_length, sample_token = evaluate_posterior(
                 logits, candidates, state.logits_processor
             )
+
+            # === VISUALIZATION LOG START ===
+            print("-" * 20 + " Verification Result " + "-" * 20)
+            best_idx = best_candidate.item() if hasattr(best_candidate, "item") else best_candidate
+            
+            # Determine accepted length (adjust based on logic in evaluate_posterior)
+            # If logits_processor is None (Greedy), accept_length is the length including the last accepted token
+            # If sampling, evaluate_posterior returns accept_length - 1
+            is_greedy = state.logits_processor is None
+            final_acc_len = accept_length.item() if hasattr(accept_length, "item") else accept_length
+            
+            # Extract accepted tokens path
+            # Note: candidates include root? No, candidates are from draft_tokens[0, retrieve_indices]
+            # draft_tokens included root as first element in base_model
+            # candidates here are just the sequence of tokens for each path
+            accepted_path_ids = candidates[best_idx, :final_acc_len+1].tolist()
+            
+            # Decode to text
+            try:
+                decoded_text = self.tokenizer.decode(accepted_path_ids)
+                # Clean up special tokens for cleaner view if needed, or keep them
+                decoded_text_clean = decoded_text.replace("\n", "\\n")
+            except Exception as e:
+                decoded_text_clean = f"<Error decoding: {e}>"
+
+            print(f"Best Candidate Index: {best_idx}")
+            print(f"Accepted Length: {final_acc_len}")
+            print(f"Accepted Tokens IDs: {accepted_path_ids}")
+            print(f"Accepted Text: \"{decoded_text_clean}\"")
+            print("=" * 61 + "\n")
+            # === VISUALIZATION LOG END ===
 
             new_token_ids = (
                 candidates[None, best_candidate, : accept_length + 1].view(-1).tolist()

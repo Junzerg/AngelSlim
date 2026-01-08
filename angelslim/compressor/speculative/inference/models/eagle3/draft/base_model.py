@@ -381,6 +381,9 @@ class BaseEagle3Drafter(nn.Module, ABC):
         draft_tokens = all_tokens[top_indices]
         draft_tokens = torch.cat((sample_token, draft_tokens), dim=0)
 
+        # Get scores for the selected draft tokens
+        draft_scores = all_scores[top_indices]
+
         # Build tree structure
         tree_mask, tree_position_ids = self._build_tree_mask(top_indices, parents_list)
 
@@ -388,6 +391,32 @@ class BaseEagle3Drafter(nn.Module, ABC):
         retrieve_indices = self._generate_retrieve_indices(
             tree_position_ids, top_indices, parents_list
         )
+        
+        # === VISUALIZATION LOG START ===
+        print("\\n" + "=" * 20 + " Draft Tree Structure " + "=" * 20)
+        print(f"Root Token ID: {sample_token.item()}")
+        print(f"Draft Tokens IDs (Flat): {draft_tokens.tolist()}")
+        print("Candidate Paths (Retrieve Indices):")
+        # Filter out -1 padding and print paths with scores
+        for i, path in enumerate(retrieve_indices.tolist()):
+            clean_path_indices = [idx for idx in path if idx != -1]
+            
+            # Construct readable path string with probs
+            path_str_parts = []
+            for idx in clean_path_indices:
+                if idx == 0:
+                    path_str_parts.append(f"ROOT({sample_token.item()})")
+                else:
+                    token_id = draft_tokens[idx].item()
+                    # idx-1 because draft_scores doesn't include root
+                    score = draft_scores[idx-1].item()
+                    prob = math.exp(score)
+                    path_str_parts.append(f"{token_id}(p={prob:.4f})")
+            
+            path_str = " -> ".join(path_str_parts)
+            print(f"  Path {i}: {path_str}")
+        print("=" * 62)
+        # === VISUALIZATION LOG END ===
 
         # Apply logits processor if provided
         if logits_processor is not None:
