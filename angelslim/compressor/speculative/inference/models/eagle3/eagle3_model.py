@@ -301,6 +301,7 @@ class Eagle3Model(nn.Module):
             load_emb=True,
             early_stop_method=early_stop_method,
         )
+        eagle_layer.tokenizer = tokenizer # Pass tokenizer for visualization
 
         # Clean up unused components
         if config.vocab_size == config.draft_vocab_size:
